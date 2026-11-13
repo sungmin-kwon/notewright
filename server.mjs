@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { loadEnv } from './lib/env.mjs';
 import { siteContext, referenceNote } from './lib/site.mjs';
 import { buildResearchPrompt, buildDraftPrompt, revisePrompt } from './lib/prompt.mjs';
-import { splitReply, pinFrontmatter, guessSlug, getField } from './lib/output.mjs';
+import { splitReply, pinFrontmatter, guessSlug, getField, researchNotes } from './lib/output.mjs';
 import { checkDraft } from './lib/checks.mjs';
 import { estimateCost, sumUsage } from './lib/cost.mjs';
 import { logCall, saveDraft, readCalls } from './lib/log.mjs';
@@ -133,11 +133,12 @@ const streaming = {
     const tools = (body.tools ?? []).filter((t) => (TOOLS[model.provider] ?? []).includes(t));
     if (!tools.some((t) => t.startsWith('web_search'))) throw new Error('research needs a web search tool; tick one');
     const conventions = ctx.conventions.filter((c) => brief.conventions.includes(c.path));
-    const { instructions, input } = buildResearchPrompt({ ctx, brief, conventions });
+    const maxSearches = Number(body.maxSearches) > 0 ? Math.round(Number(body.maxSearches)) : null;
+    const { instructions, input } = buildResearchPrompt({ ctx, brief, conventions, maxSearches });
     const session = newSession(brief);
     saveDraft(`${session.id}-research-prompt.md`, `${instructions}\n\n=== USER ===\n\n${input}\n`);
     const r = await runCall({ session, stage: 'research', model, request: { instructions, input, tools, temperature: body.temperature ?? null }, send });
-    session.research = r.text.trim();
+    session.research = researchNotes(r.text);
     session.states.research = r.state;
     return summary(session);
   },

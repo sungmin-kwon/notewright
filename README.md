@@ -56,6 +56,9 @@ The server listens on `127.0.0.1` only, so other machines on the network can't r
 2. **Research.** Pick a model and a search tool. The searches show up as they run, then the
    notes stream in. The notes are an editable text box: cut a doubtful source, add one you know,
    or answer an open question before drafting. The draft is written from what is in the box.
+   Each Mistral web search takes roughly 30 to 60 seconds and they run one after another, so
+   **Most searches** (default 6) caps them; the live list shows how long each one took. A cheaper
+   or faster model can do this step while a stronger one drafts.
    Skip this step to draft from the brief alone (then tick web search under the draft, so the
    model can check its sources while it writes).
 3. **Draft.** Pick a model (it may differ from the research model). The model is told to cite
@@ -104,7 +107,9 @@ error), how long it ran, and the path of its prompt. The terminal running `npm s
 same error. `runs/` is not committed.
 
 Replies are streamed, so a long research run doesn't hit a timeout; the app gives up only after
-20 minutes with no data on the connection.
+20 minutes with no data on the connection. The live panel says when the API connected and
+counts the events received. Start the app with `NOTEWRIGHT_DEBUG=1 npm start` to write every
+streamed event, with its time, to `runs/stream.log`.
 
 ## Models and providers
 

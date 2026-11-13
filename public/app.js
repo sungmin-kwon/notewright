@@ -148,14 +148,15 @@ async function stream(path, body, after) {
           $('#live-events').textContent = `${events} event${events > 1 ? 's' : ''} received, last: ${ev.name}`;
         }
         else if (ev.type === 'tool' || ev.type === 'tool-done') {
-          let li = queries.get(ev.id);
-          if (!li) {
-            li = document.createElement('li');
-            queries.set(ev.id, li);
-            $('#live-queries').append(li);
+          let q = queries.get(ev.id);
+          if (!q) {
+            q = { li: document.createElement('li'), t: Date.now() };
+            queries.set(ev.id, q);
+            $('#live-queries').append(q.li);
           }
-          li.className = ev.type === 'tool' ? 'running' : '';
-          li.textContent = `${ev.tool === 'web_search' ? '' : `${ev.tool}: `}${ev.query || '…'}${ev.type === 'tool' ? ' (searching)' : ''}`;
+          const secs = Math.round((Date.now() - q.t) / 1000);
+          q.li.className = ev.type === 'tool' ? 'running' : '';
+          q.li.textContent = `${ev.tool === 'web_search' ? '' : `${ev.tool}: `}${ev.query || '…'}${ev.type === 'tool' ? ' (searching)' : ` (${secs} s)`}`;
           phase = ev.type === 'tool' ? 'Searching…' : 'Reading the results…';
         } else if (ev.type === 'text') {
           phase = 'Writing…';
@@ -205,7 +206,7 @@ $('#research-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!$('#brief').reportValidity()) return;
   const f = new FormData(e.target);
-  const r = await stream('/api/research', { ...brief(), model: f.get('model'), tools: [f.get('tool')] }, e.target);
+  const r = await stream('/api/research', { ...brief(), model: f.get('model'), tools: [f.get('tool')], maxSearches: f.get('maxSearches') }, e.target);
   if (!r) return;
   session = r.session;
   $('#research-out').hidden = false;
