@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 
 let server;
+const seenBodies = [];
 const sse = (res, events, gap) => {
   res.writeHead(200, { 'Content-Type': 'text/event-stream' });
   let i = 0;
@@ -24,6 +25,25 @@ before(async () => {
     req.on('end', () => {
       const b = JSON.parse(body);
       assert.equal(b.stream, true);
+      seenBodies.push({ url: req.url, body: b });
+      if (b.model === 'many') {
+        return sse(res, [
+          ['conversation.response.started', { conversation_id: 'conv_many' }],
+          ...[1, 2, 3, 4].flatMap((i) => [
+            ['tool.execution.started', { id: `t${i}`, name: 'web_search', arguments: JSON.stringify(i === 2 ? { url: 'https://ctext.org/x' } : { query: `q${i}` }) }],
+            ['tool.execution.done', { id: `t${i}`, name: 'web_search' }],
+          ]),
+          ['message.output.delta', { content: 'never reached' }],
+          ['conversation.response.done', { usage: { prompt_tokens: 999 } }],
+        ], 20);
+      }
+      if (req.url.endsWith('/conv_many')) {
+        return sse(res, [
+          ['conversation.response.started', { conversation_id: 'conv_many' }],
+          ['message.output.delta', { content: '## Sources\n\n- [S1] x' }],
+          ['conversation.response.done', { usage: { prompt_tokens: 50, completion_tokens: 5, connectors: {} } }],
+        ], 5);
+      }
       if (b.model === 'err') {
         res.writeHead(422, { 'Content-Type': 'application/json' });
         return res.end('{"detail":"bad tool"}');
@@ -58,8 +78,11 @@ test('streams events and returns the whole reply', async () => {
   assert.equal(r.text, 'one two');
   assert.deepEqual(r.usage, { inputTokens: 10, outputTokens: 2, connectorTokens: 5, toolCalls: { web_search: 1 } });
   assert.deepEqual(r.state, { conversationId: 'conv_new' });
-  assert.deepEqual(seen.map((e) => e.type), ['tool', 'tool-done', 'text', 'text']);
-  assert.equal(seen[1].query, 'q1');
+  assert.deepEqual(seen[0], { type: 'open', status: 200 });
+  assert.equal(seen.filter((e) => e.type === 'raw').length, 6);
+  const parsed = seen.filter((e) => !['open', 'raw'].includes(e.type));
+  assert.deepEqual(parsed.map((e) => e.type), ['tool', 'tool-done', 'text', 'text']);
+  assert.equal(parsed[1].query, 'q1');
   const again = await call({ input: 'more', state: r.state });
   assert.deepEqual(again.state, { conversationId: 'conv_same' });
 });
@@ -71,4 +94,18 @@ test('reports an HTTP error with its status and body', async () => {
 test('reports an error event mid-stream, and a stream cut short', async () => {
   await assert.rejects(call({ model: 'midway', instructions: '', input: 'x' }), /overloaded/);
   await assert.rejects(call({ model: 'cut', instructions: '', input: 'x' }), (e) => e.code === 'INCOMPLETE');
+});
+
+test('stops at the tool limit and asks for the reply without tools', async () => {
+  const seen = [];
+  const r = await call({ model: 'many', instructions: 'sys', input: 'hi', tools: ['web_search'], maxToolCalls: 2, onEvent: (e) => seen.push(e) });
+  assert.equal(r.text, '## Sources\n\n- [S1] x');
+  assert.deepEqual(r.usage.toolCalls, { web_search: 2 });
+  assert.equal(r.usage.incomplete, true);
+  assert.equal(r.usage.inputTokens, 50);
+  assert.ok(seen.some((e) => e.type === 'limit' && e.max === 2));
+  assert.deepEqual(seen.filter((e) => e.type === 'tool-done').map((e) => e.query), ['q1', 'open https://ctext.org/x']);
+  const wrap = seenBodies.find((x) => x.url.endsWith('/conv_many'));
+  assert.equal(wrap.body.completion_args.tool_choice, 'none');
+  assert.match(wrap.body.inputs[0].content, /limit of 2/);
 });

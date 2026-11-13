@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitReply, pinFrontmatter, guessSlug, getField } from '../lib/output.mjs';
+import { splitReply, pinFrontmatter, guessSlug, getField, researchNotes } from '../lib/output.mjs';
 import { checkDraft } from '../lib/checks.mjs';
 import { estimateCost, sumUsage } from '../lib/cost.mjs';
 import { newAccumulator } from '../providers/mistral.mjs';
@@ -92,4 +92,12 @@ test('the research prompt asks for sources, key facts and open questions, with t
   const d = buildDraftPrompt({ ctx: { sections, writing }, brief: { topic: 'T', tags: ['stats'] }, modelLabel: 'M', tools: [], conventions: [], reference: null, date: '2026-11-13', research: '## Sources\n- [S1] A' });
   assert.match(d.input, /# Research notes[\s\S]*\[S1\] A/);
   assert.ok(d.instructions.includes('Cite only works listed there'));
+});
+
+test('researchNotes drops the plan before ## Sources, and the budget reaches the prompt', () => {
+  assert.equal(researchNotes("I'll research this.\n\n## Sources\n\n- [S1] A\n"), '## Sources\n\n- [S1] A');
+  assert.equal(researchNotes('no heading here'), 'no heading here');
+  const p = buildResearchPrompt({ ctx: { sections, writing: '' }, brief: { topic: 'T', tags: ['stats'] }, conventions: [], maxSearches: 6 });
+  assert.match(p.instructions, /at most 6 tool calls/);
+  assert.doesNotMatch(buildResearchPrompt({ ctx: { sections, writing: '' }, brief: { topic: 'T', tags: ['stats'] }, conventions: [] }).instructions, /at most/);
 });

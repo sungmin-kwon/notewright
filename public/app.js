@@ -126,6 +126,8 @@ async function stream(path, body, after) {
   const timer = setInterval(tick, 1000);
   tick();
   const queries = new Map();
+  let events = 0;
+  $('#live-events').textContent = '';
   try {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const reader = res.body.getReader();
@@ -139,16 +141,28 @@ async function stream(path, body, after) {
       while ((i = buf.indexOf('\n')) >= 0) {
         const ev = JSON.parse(buf.slice(0, i));
         buf = buf.slice(i + 1);
-        if (ev.type === 'start') phase = `${ev.model}: ${ev.stage}…`;
+        if (ev.type === 'start') phase = `${ev.model}: ${ev.stage}. Waiting for the API…`;
+        else if (ev.type === 'open') phase = ev.status === 200 ? 'Connected; waiting for the first event…' : `The API answered ${ev.status}…`;
+        else if (ev.type === 'limit') {
+          phase = `Reached the limit of ${ev.max} tool calls; asking for the notes from what was found…`;
+          const li = document.createElement('li');
+          li.className = 'running';
+          li.textContent = `limit of ${ev.max} reached: stopped`;
+          $('#live-queries').append(li);
+        } else if (ev.type === 'raw') {
+          events++;
+          $('#live-events').textContent = `${events} event${events > 1 ? 's' : ''} received, last: ${ev.name}`;
+        }
         else if (ev.type === 'tool' || ev.type === 'tool-done') {
-          let li = queries.get(ev.id);
-          if (!li) {
-            li = document.createElement('li');
-            queries.set(ev.id, li);
-            $('#live-queries').append(li);
+          let q = queries.get(ev.id);
+          if (!q) {
+            q = { li: document.createElement('li'), t: Date.now() };
+            queries.set(ev.id, q);
+            $('#live-queries').append(q.li);
           }
-          li.className = ev.type === 'tool' ? 'running' : '';
-          li.textContent = `${ev.tool === 'web_search' ? '' : `${ev.tool}: `}${ev.query || '…'}${ev.type === 'tool' ? ' (searching)' : ''}`;
+          const secs = Math.round((Date.now() - q.t) / 1000);
+          q.li.className = ev.type === 'tool' ? 'running' : '';
+          q.li.textContent = `${ev.tool === 'web_search' ? '' : `${ev.tool}: `}${ev.query || '…'}${ev.type === 'tool' ? ' (searching)' : ` (${secs} s)`}`;
           phase = ev.type === 'tool' ? 'Searching…' : 'Reading the results…';
         } else if (ev.type === 'text') {
           phase = 'Writing…';
@@ -198,7 +212,7 @@ $('#research-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!$('#brief').reportValidity()) return;
   const f = new FormData(e.target);
-  const r = await stream('/api/research', { ...brief(), model: f.get('model'), tools: [f.get('tool')] }, e.target);
+  const r = await stream('/api/research', { ...brief(), model: f.get('model'), tools: [f.get('tool')], maxSearches: f.get('maxSearches') }, e.target);
   if (!r) return;
   session = r.session;
   $('#research-out').hidden = false;
@@ -273,9 +287,12 @@ function notices(r) {
 
 function costTable(list, t) {
   const row = (c, i) =>
-    `<tr><td>${i + 1}</td><td>${esc(c.stage)}</td><td>${esc(c.label)}${c.servedModel ? ` <span class="muted">${esc(c.servedModel)}</span>` : ''}</td><td class="n">${num(c.usage.inputTokens)}</td><td class="n">${num(c.usage.outputTokens)}</td><td class="n">${num(c.usage.connectorTokens)}</td><td class="n">${esc(calls(c.usage.toolCalls))}</td><td class="n">${(c.ms / 1000).toFixed(0)} s</td><td class="n">${usd(c.cost.total)}</td></tr>`;
+    `<tr><td>${i + 1}</td><td>${esc(c.stage)}</td><td>${esc(c.label)}${c.servedModel ? ` <span class="muted">${esc(c.servedModel)}</span>` : ''}</td><td class="n">${num(c.usage.inputTokens)}</td><td class="n">${num(c.usage.outputTokens)}</td><td class="n">${num(c.usage.connectorTokens)}</td><td class="n">${esc(calls(c.usage.toolCalls))}</td><td class="n">${(c.ms / 1000).toFixed(0)} s</td><td class="n">${usd(c.cost.total)}${c.usage.incomplete ? ' *' : ''}</td></tr>`;
+  const cut = list.some((c) => c.usage.incomplete)
+    ? '<p class="muted">* Stopped at the tool limit. Mistral reports no token counts for the part of a run that was cut off, so this figure counts only the wrap-up; the real cost is higher.</p>'
+    : '';
   const unpriced = t.unpriced?.length ? `<p class="muted">Dollar figures count tokens only: config.json has no price per call for ${esc(t.unpriced.join(', '))}. Search-result tokens are priced as input tokens (an assumption; check it against the Mistral billing page).</p>` : '';
-  return `<div class="scroll"><table><thead><tr><th>#</th><th>stage</th><th>model</th><th class="n">input</th><th class="n">output</th><th class="n">search-result tokens</th><th class="n">tool calls</th><th class="n">time</th><th class="n">est. cost</th></tr></thead><tbody>${list.map(row).join('')}<tr class="total"><td></td><td>note total</td><td></td><td class="n">${num(t.inputTokens)}</td><td class="n">${num(t.outputTokens)}</td><td class="n">${num(t.connectorTokens)}</td><td class="n">${esc(calls(t.toolCalls))}</td><td></td><td class="n">${usd(t.cost)}</td></tr></tbody></table></div>${unpriced}`;
+  return `<div class="scroll"><table><thead><tr><th>#</th><th>stage</th><th>model</th><th class="n">input</th><th class="n">output</th><th class="n">search-result tokens</th><th class="n">tool calls</th><th class="n">time</th><th class="n">est. cost</th></tr></thead><tbody>${list.map(row).join('')}<tr class="total"><td></td><td>note total</td><td></td><td class="n">${num(t.inputTokens)}</td><td class="n">${num(t.outputTokens)}</td><td class="n">${num(t.connectorTokens)}</td><td class="n">${esc(calls(t.toolCalls))}</td><td></td><td class="n">${usd(t.cost)}</td></tr></tbody></table></div>${cut}${unpriced}`;
 }
 
 // ---- Preview --------------------------------------------------------------------------------
