@@ -58,8 +58,11 @@ test('streams events and returns the whole reply', async () => {
   assert.equal(r.text, 'one two');
   assert.deepEqual(r.usage, { inputTokens: 10, outputTokens: 2, connectorTokens: 5, toolCalls: { web_search: 1 } });
   assert.deepEqual(r.state, { conversationId: 'conv_new' });
-  assert.deepEqual(seen.map((e) => e.type), ['tool', 'tool-done', 'text', 'text']);
-  assert.equal(seen[1].query, 'q1');
+  assert.deepEqual(seen[0], { type: 'open', status: 200 });
+  assert.equal(seen.filter((e) => e.type === 'raw').length, 6);
+  const parsed = seen.filter((e) => !['open', 'raw'].includes(e.type));
+  assert.deepEqual(parsed.map((e) => e.type), ['tool', 'tool-done', 'text', 'text']);
+  assert.equal(parsed[1].query, 'q1');
   const again = await call({ input: 'more', state: r.state });
   assert.deepEqual(again.state, { conversationId: 'conv_same' });
 });

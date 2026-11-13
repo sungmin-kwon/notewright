@@ -16,6 +16,7 @@
 //   conversation.response.error    { message, code }
 import { need } from '../lib/env.mjs';
 import { postSSE, HttpError } from '../lib/http.mjs';
+import { debugLog } from '../lib/log.mjs';
 
 // MISTRAL_API_BASE is only for tests (a local stand-in server).
 const API = () => process.env.MISTRAL_API_BASE || 'https://api.mistral.ai/v1';
@@ -46,7 +47,10 @@ export async function call({ model, instructions, input, tools = [], state, temp
     res = await postSSE(url, {
       headers: { Authorization: `Bearer ${key}` },
       body,
+      onOpen: (status) => onEvent({ type: 'open', status }),
       onEvent: (name, data) => {
+        debugLog(name, data);
+        onEvent({ type: 'raw', name: data?.type ?? name });
         const ev = acc.add(name, data);
         if (ev) onEvent(ev);
       },

@@ -126,6 +126,8 @@ async function stream(path, body, after) {
   const timer = setInterval(tick, 1000);
   tick();
   const queries = new Map();
+  let events = 0;
+  $('#live-events').textContent = '';
   try {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const reader = res.body.getReader();
@@ -139,7 +141,12 @@ async function stream(path, body, after) {
       while ((i = buf.indexOf('\n')) >= 0) {
         const ev = JSON.parse(buf.slice(0, i));
         buf = buf.slice(i + 1);
-        if (ev.type === 'start') phase = `${ev.model}: ${ev.stage}…`;
+        if (ev.type === 'start') phase = `${ev.model}: ${ev.stage}. Waiting for the API…`;
+        else if (ev.type === 'open') phase = ev.status === 200 ? 'Connected; waiting for the first event…' : `The API answered ${ev.status}…`;
+        else if (ev.type === 'raw') {
+          events++;
+          $('#live-events').textContent = `${events} event${events > 1 ? 's' : ''} received, last: ${ev.name}`;
+        }
         else if (ev.type === 'tool' || ev.type === 'tool-done') {
           let li = queries.get(ev.id);
           if (!li) {
