@@ -8,6 +8,10 @@
 //     state,          // null on the first call; afterwards whatever the last call returned,
 //                     // passed back unchanged so a follow-up continues the same conversation
 //     temperature,
+//     onEvent,        // called as the reply streams in, with
+//                     //   { type: 'tool', id, tool, query }        a search (or other tool) started
+//                     //   { type: 'tool-done', id, tool, query }   … and finished
+//                     //   { type: 'text', text, refs }             a piece of the reply
 //   }
 //
 // and resolves to

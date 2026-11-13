@@ -56,3 +56,10 @@ tr.total td { font-weight: 700; }
 .note table { font-family: system-ui, sans-serif; }
 .note a { color: var(--accent); }
 fieldset label > input { display: inline; width: auto; margin: 0; }
+h3 { font-size: 1rem; margin: 20px 0 6px; }
+#live { border: 1px solid var(--rule); border-radius: 4px; padding: 8px 12px; margin: 12px 0; }
+#live-text { max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: .82rem; background: var(--box); padding: 8px; margin: 6px 0 0; }
+#live-text:empty { display: none; }
+.queries { margin: 4px 0; padding-left: 24px; font-size: .9rem; }
+.queries li.running { color: var(--muted); }
+details { margin: 8px 0; font-size: .92rem; }
