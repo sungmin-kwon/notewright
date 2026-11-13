@@ -1,0 +1,60 @@
+{
+  "site": {
+    "repo": "sungmin-kwon/sungmin-kwon.github.io",
+    "branch": "main",
+    "notesDir": "src/content/notes",
+    "guide": "WRITING.md",
+    "conventionsDir": "conventions",
+    "siteConfig": "site.config.mjs"
+  },
+  "referenceNotes": {
+    "3-way-distillation": "what-is-model-distillation",
+    "working-notes": "likelihood-and-fisher-information",
+    "marginalia": "when-the-three-kingdoms-tipped"
+  },
+  "defaultModel": "mistral-large-latest",
+  "models": [
+    {
+      "id": "mistral-large-latest",
+      "provider": "mistral",
+      "label": "Mistral Large 4",
+      "price": {
+        "inputPerM": 0.7,
+        "outputPerM": 2.1
+      }
+    },
+    {
+      "id": "mistral-small-latest",
+      "provider": "mistral",
+      "label": "Mistral Small 4",
+      "price": {
+        "inputPerM": 0.15,
+        "outputPerM": 0.6
+      }
+    },
+    {
+      "id": "fake",
+      "provider": "fake",
+      "label": "Fake model (offline test)",
+      "price": {
+        "inputPerM": 0,
+        "outputPerM": 0
+      }
+    }
+  ],
+  "tools": {
+    "web_search": {
+      "label": "Web search",
+      "pricePerCall": null
+    },
+    "web_search_premium": {
+      "label": "Web search (premium, with news)",
+      "pricePerCall": null
+    },
+    "code_interpreter": {
+      "label": "Code interpreter (Python)",
+      "pricePerCall": null
+    }
+  },
+  "connectorTokens": "input"
+}

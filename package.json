@@ -1,0 +1,19 @@
+{
+  "name": "notewright",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A small local web app that drafts notes for sungmin-kwon.github.io with an LLM API, shows what each call cost, and opens the draft as a PR.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "katex": "0.16.47",
+    "marked": "12.0.2"
+  }
+}

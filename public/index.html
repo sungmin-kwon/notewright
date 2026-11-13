@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>notewright</title>
+<link rel="stylesheet" href="/vendor/katex/katex.min.css">
+<link rel="stylesheet" href="/style.css">
+<script src="/vendor/marked/marked.min.js"></script>
+<script src="/vendor/katex/katex.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>notewright</h1>
+  <nav>
+    <button type="button" data-view="draft" class="tab on">Draft</button>
+    <button type="button" data-view="runs" class="tab">Runs</button>
+  </nav>
+  <p id="status" class="muted">Loading the guides…</p>
+</header>
+
+<main>
+<section id="view-draft">
+  <form id="brief">
+    <label>Topic
+      <input name="topic" required placeholder="e.g. Why the delta method works, and where it fails">
+    </label>
+    <label>Notes and source material <span class="muted">(optional; anything the model should use)</span>
+      <textarea name="notes" rows="6" placeholder="Angle, sources to use, examples you want, things to avoid…"></textarea>
+    </label>
+
+    <div class="row">
+      <label>Notebook
+        <select name="section" id="section"></select>
+      </label>
+      <label>Bar
+        <select name="bar">
+          <option value="default">notebook's default</option>
+          <option value="quantitative">quantitative</option>
+          <option value="qualitative">qualitative</option>
+        </select>
+      </label>
+    </div>
+    <fieldset><legend>Tags <span class="muted">(the first one ticked is the main tag)</span></legend><div id="tags"></div></fieldset>
+    <fieldset><legend>Conventions files</legend><div id="conventions"></div></fieldset>
+
+    <div class="row">
+      <label>Reference note
+        <select name="reference" id="reference"></select>
+      </label>
+      <label>File name <span class="muted">(optional)</span>
+        <input name="slug" placeholder="kebab-case, without .md" pattern="[a-z0-9]+(-[a-z0-9]+)*">
+      </label>
+    </div>
+    <label>Length <span class="muted">(optional)</span>
+      <input name="length" placeholder="e.g. a long note, about 2,000 words">
+    </label>
+
+    <div class="row">
+      <label>Model
+        <select name="model" id="model"></select>
+      </label>
+      <label>Temperature <span class="muted">(blank = the model's default)</span>
+        <input name="temperature" type="number" min="0" max="1.5" step="0.05">
+      </label>
+    </div>
+    <fieldset><legend>Tools</legend><div id="tools"></div></fieldset>
+
+    <p class="muted">The system prompt is WRITING.md, the ticked conventions files and the reference note, fetched from the site repo when the app starts.</p>
+    <button type="submit" id="draft-btn">Draft</button>
+    <span id="draft-wait" class="muted"></span>
+  </form>
+
+  <div id="result" hidden>
+    <h2>Cost</h2>
+    <div id="cost"></div>
+
+    <div id="notices"></div>
+
+    <h2>Draft</h2>
+    <nav class="subtabs">
+      <button type="button" data-pane="preview" class="tab on">Preview</button>
+      <button type="button" data-pane="markdown" class="tab">Markdown</button>
+      <button type="button" data-pane="prnotes" class="tab">PR notes</button>
+      <button type="button" data-pane="refs" class="tab">Search results</button>
+    </nav>
+    <article id="pane-preview" class="pane note"></article>
+    <div id="pane-markdown" class="pane" hidden>
+      <textarea id="markdown" rows="30" spellcheck="false"></textarea>
+      <button type="button" id="recheck">Re-run the checks</button>
+    </div>
+    <div id="pane-prnotes" class="pane" hidden>
+      <textarea id="prnotes" rows="20" spellcheck="false"></textarea>
+    </div>
+    <div id="pane-refs" class="pane" hidden><ul id="refs"></ul></div>
+
+    <h2>Ask for changes</h2>
+    <form id="revise">
+      <textarea name="instruction" rows="3" placeholder="e.g. The worked example only confirms the formula. Pick parameters where the two intervals disagree."></textarea>
+      <button type="submit" id="revise-btn">Revise</button>
+      <span id="revise-wait" class="muted"></span>
+      <p class="muted">Continues the same conversation, so the model keeps the guide and the earlier draft. Edits you made in the Markdown tab are not sent; they are replaced by the revision.</p>
+    </form>
+
+    <h2>Open a pull request</h2>
+    <form id="pr">
+      <label>File name
+        <span class="inline"><code>src/content/notes/</code><input name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*"><code>.md</code></span>
+      </label>
+      <button type="submit" id="pr-btn">Open PR</button>
+      <span id="pr-out"></span>
+    </form>
+  </div>
+</section>
+
+<section id="view-runs" hidden>
+  <h2>By model</h2>
+  <p class="muted">One row per model, over all notes drafted so far. A note is one draft and its revisions. Costs are estimates from config.json prices.</p>
+  <div id="by-model"></div>
+  <h2>Every call</h2>
+  <div id="calls"></div>
+</section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
