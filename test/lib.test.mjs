@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { splitReply, pinFrontmatter, guessSlug, getField } from '../lib/output.mjs';
 import { checkDraft } from '../lib/checks.mjs';
 import { estimateCost, sumUsage } from '../lib/cost.mjs';
-import { parse } from '../providers/mistral.mjs';
-import { buildDraftPrompt } from '../lib/prompt.mjs';
+import { newAccumulator } from '../providers/mistral.mjs';
+import { buildDraftPrompt, buildResearchPrompt, citationRules } from '../lib/prompt.mjs';
 
 const sections = [{ path: 'working-notes', title: 'working notes', tags: ['stats', 'genes', 'data'], bar: 'quantitative' }];
 
@@ -40,15 +40,22 @@ test('checkDraft catches the common slips', () => {
   assert.deepEqual(checkDraft(ok, { sections, tags: ['stats'] }), []);
 });
 
-test('Mistral response parsing and cost', () => {
-  const r = parse({
-    conversation_id: 'conv_1',
-    outputs: [
-      { type: 'tool.execution', name: 'web_search' },
-      { type: 'message.output', model: 'mistral-large-2511', content: [{ type: 'text', text: 'Hello ' }, { type: 'tool_reference', tool: 'web_search', title: 'Paper', url: 'https://x.org' }, { type: 'text', text: 'world' }] },
-    ],
-    usage: { prompt_tokens: 1_000_000, completion_tokens: 100_000, connector_tokens: 10_000, connectors: { web_search: 3 } },
-  });
+test('Mistral stream parsing and cost', () => {
+  const acc = newAccumulator();
+  const events = [
+    ['conversation.response.started', { type: 'conversation.response.started', conversation_id: 'conv_1' }],
+    ['tool.execution.started', { type: 'tool.execution.started', id: 't1', name: 'web_search', arguments: '' }],
+    ['tool.execution.delta', { type: 'tool.execution.delta', id: 't1', name: 'web_search', arguments: '{"query": "姓 氏' }],
+    ['tool.execution.delta', { type: 'tool.execution.delta', id: 't1', name: 'web_search', arguments: ' origin"}' }],
+    ['tool.execution.done', { type: 'tool.execution.done', id: 't1', name: 'web_search' }],
+    ['message.output.delta', { type: 'message.output.delta', model: 'mistral-large-2511', content: 'Hello ' }],
+    ['message.output.delta', { type: 'message.output.delta', content: [{ type: 'tool_reference', tool: 'web_search', title: 'Paper', url: 'https://x.org' }, { type: 'text', text: 'world' }] }],
+    ['conversation.response.done', { type: 'conversation.response.done', usage: { prompt_tokens: 1_000_000, completion_tokens: 100_000, connector_tokens: 10_000, connectors: { web_search: 3 } } }],
+  ];
+  const out = events.map(([n, d]) => acc.add(n, d)).filter(Boolean);
+  assert.deepEqual(out.find((e) => e.type === 'tool-done'), { type: 'tool-done', id: 't1', tool: 'web_search', query: '姓 氏 origin' });
+  assert.ok(acc.done);
+  const r = acc.result();
   assert.equal(r.text, 'Hello world');
   assert.equal(r.references[0].url, 'https://x.org');
   assert.equal(r.servedModel, 'mistral-large-2511');
@@ -73,4 +80,16 @@ test('the prompt carries the guide, the conventions and the settings', () => {
     assert.ok(p.instructions.includes(s), s);
   }
   assert.match(p.input, /Delta method/);
+});
+
+test('the research prompt asks for sources, key facts and open questions, with the citation rules', () => {
+  const writing = 'x\n\n**Citations.** Name the authors.\n\n**Cite only what a reader can check.** Be specific.\n\n**Next.** no';
+  assert.equal(citationRules(writing), '**Citations.** Name the authors.\n\n**Cite only what a reader can check.** Be specific.');
+  const p = buildResearchPrompt({ ctx: { sections, writing }, brief: { topic: 'Xing and shi', notes: 'use Zuo zhuan', tags: ['stats'] }, conventions: [{ path: 'conventions/east-asian.md', text: 'EA' }] });
+  for (const s of ['## Sources', '## Key facts', '## Open questions', '**Citations.**', 'EA', 'Do not draft']) assert.ok(p.instructions.includes(s), s);
+  assert.ok(!p.instructions.includes('**Next.**'));
+  assert.match(p.input, /Xing and shi[\s\S]*Zuo zhuan/);
+  const d = buildDraftPrompt({ ctx: { sections, writing }, brief: { topic: 'T', tags: ['stats'] }, modelLabel: 'M', tools: [], conventions: [], reference: null, date: '2026-11-13', research: '## Sources\n- [S1] A' });
+  assert.match(d.input, /# Research notes[\s\S]*\[S1\] A/);
+  assert.ok(d.instructions.includes('Cite only works listed there'));
 });

@@ -56,33 +56,67 @@
       <input name="length" placeholder="e.g. a long note, about 2,000 words">
     </label>
 
+  </form>
+
+  <h2>1. Research</h2>
+  <p class="muted">The model plans and runs web searches and writes research notes: each source with what it supports and how sure it is, the key facts, and open questions. You can edit the notes before drafting. Skip this step to draft from the brief alone.</p>
+  <form id="research-form">
     <div class="row">
       <label>Model
-        <select name="model" id="model"></select>
+        <select name="model" class="model-select" data-step="research"></select>
+      </label>
+      <label>Search tool
+        <select name="tool" id="research-tool"></select>
+      </label>
+    </div>
+    <button type="submit" id="research-btn">Research</button>
+  </form>
+
+  <div id="live" hidden>
+    <p class="muted" id="live-status"></p>
+    <ol id="live-queries" class="queries"></ol>
+    <pre id="live-text"></pre>
+  </div>
+  <p id="step-error" class="error"></p>
+
+  <div id="research-out" hidden>
+    <h3>Searches</h3>
+    <ol id="queries" class="queries"></ol>
+    <h3>Research notes <span class="muted">(editable; the draft is written from what is here)</span></h3>
+    <textarea id="research" rows="18" spellcheck="false"></textarea>
+    <details><summary>Search results the model was given</summary><ul id="research-refs"></ul></details>
+  </div>
+
+  <h2>2. Draft</h2>
+  <form id="draft-form">
+    <div class="row">
+      <label>Model
+        <select name="model" class="model-select" data-step="draft"></select>
       </label>
       <label>Temperature <span class="muted">(blank = the model's default)</span>
         <input name="temperature" type="number" min="0" max="1.5" step="0.05">
       </label>
     </div>
-    <fieldset><legend>Tools</legend><div id="tools"></div></fieldset>
-
-    <p class="muted">The system prompt is WRITING.md, the ticked conventions files and the reference note, fetched from the site repo when the app starts.</p>
+    <fieldset><legend>Tools while drafting</legend><div id="draft-tools"></div></fieldset>
+    <p class="muted" id="draft-hint"></p>
     <button type="submit" id="draft-btn">Draft</button>
-    <span id="draft-wait" class="muted"></span>
   </form>
 
-  <div id="result" hidden>
-    <h2>Cost</h2>
+  <div id="cost-wrap" hidden>
+    <h2>Cost of this note so far</h2>
     <div id="cost"></div>
+  </div>
+
+  <div id="result" hidden>
 
     <div id="notices"></div>
 
-    <h2>Draft</h2>
+    <h3>The draft</h3>
     <nav class="subtabs">
       <button type="button" data-pane="preview" class="tab on">Preview</button>
       <button type="button" data-pane="markdown" class="tab">Markdown</button>
       <button type="button" data-pane="prnotes" class="tab">PR notes</button>
-      <button type="button" data-pane="refs" class="tab">Search results</button>
+      <button type="button" data-pane="refs" class="tab">All search results</button>
     </nav>
     <article id="pane-preview" class="pane note"></article>
     <div id="pane-markdown" class="pane" hidden>
@@ -94,15 +128,14 @@
     </div>
     <div id="pane-refs" class="pane" hidden><ul id="refs"></ul></div>
 
-    <h2>Ask for changes</h2>
+    <h3>Ask for changes</h3>
     <form id="revise">
       <textarea name="instruction" rows="3" placeholder="e.g. The worked example only confirms the formula. Pick parameters where the two intervals disagree."></textarea>
       <button type="submit" id="revise-btn">Revise</button>
-      <span id="revise-wait" class="muted"></span>
       <p class="muted">Continues the same conversation, so the model keeps the guide and the earlier draft. Edits you made in the Markdown tab are not sent; they are replaced by the revision.</p>
     </form>
 
-    <h2>Open a pull request</h2>
+    <h3>Open a pull request</h3>
     <form id="pr">
       <label>File name
         <span class="inline"><code>src/content/notes/</code><input name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*"><code>.md</code></span>

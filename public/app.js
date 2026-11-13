@@ -55,12 +55,14 @@ function setup() {
     config.conventions.map((c) => `<label><input type="checkbox" name="conventions" value="${esc(c.path)}"> <code>${esc(c.name)}</code> <span class="muted">${esc(c.title)}</span></label>`).join('') ||
     '<span class="muted">none in the repo</span>';
   $('#reference').innerHTML = ['<option value="">none</option>', ...config.noteIds.map((id) => `<option>${esc(id)}</option>`)].join('');
-  $('#model').innerHTML = config.models
-    .map((m) => `<option value="${esc(m.id)}" ${m.id === config.defaultModel ? 'selected' : ''}>${esc(m.label)} · $${m.price.inputPerM}/$${m.price.outputPerM} per M tokens</option>`)
-    .join('');
-  $('#model').onchange = modelChanged;
+  document.querySelectorAll('.model-select').forEach((sel) => {
+    sel.innerHTML = config.models
+      .map((m) => `<option value="${esc(m.id)}" ${m.id === config.defaultModel ? 'selected' : ''}>${esc(m.label)} · $${m.price.inputPerM}/$${m.price.outputPerM} per M tokens</option>`)
+      .join('');
+    sel.onchange = toolsChanged;
+  });
   sectionChanged();
-  modelChanged();
+  toolsChanged();
 }
 
 function sectionChanged() {
@@ -76,96 +78,183 @@ function sectionChanged() {
   $('#reference').value = ref && config.noteIds.includes(ref) ? ref : '';
 }
 
-function modelChanged() {
-  const m = config.models.find((x) => x.id === $('#model').value);
-  const was = new Set([...document.querySelectorAll('input[name=tools]:checked')].map((i) => i.value));
-  const first = !document.querySelector('input[name=tools]');
-  $('#tools').innerHTML =
-    m.tools
-      .map((t) => {
-        const info = config.tools[t];
-        const price = info && typeof info.pricePerCall === 'number' ? ` · $${info.pricePerCall} per call` : info ? ' · price per call not set' : '';
-        const on = first ? t === 'web_search' : was.has(t);
-        return `<label><input type="checkbox" name="tools" value="${esc(t)}" ${on ? 'checked' : ''}> ${esc(info?.label ?? t)} <span class="muted">${esc(price)}</span></label>`;
-      })
-      .join('') || '<span class="muted">this model has no built-in tools</span>';
+const priceNote = (t) => {
+  const info = config.tools[t];
+  return info && typeof info.pricePerCall === 'number' ? ` · $${info.pricePerCall} per call` : info ? ' · price per call not set' : '';
+};
+const modelOf = (step) => config.models.find((x) => x.id === document.querySelector(`.model-select[data-step=${step}]`).value);
+
+function toolsChanged() {
+  // Research: one search tool, required.
+  const rm = modelOf('research');
+  const searchTools = rm.tools.filter((t) => t.startsWith('web_search'));
+  const was = $('#research-tool').value;
+  $('#research-tool').innerHTML = searchTools.map((t) => `<option value="${esc(t)}">${esc(config.tools[t]?.label ?? t)}${esc(priceNote(t))}</option>`).join('');
+  if (searchTools.includes(was)) $('#research-tool').value = was;
+  $('#research-btn').disabled = !searchTools.length;
+  // Draft: any tools, off by default.
+  const dm = modelOf('draft');
+  const on = new Set([...document.querySelectorAll('input[name=draft-tools]:checked')].map((i) => i.value));
+  $('#draft-tools').innerHTML =
+    dm.tools.map((t) => `<label><input type="checkbox" name="draft-tools" value="${esc(t)}" ${on.has(t) ? 'checked' : ''}> ${esc(config.tools[t]?.label ?? t)} <span class="muted">${esc(priceNote(t))}</span></label>`).join('') ||
+    '<span class="muted">this model has no built-in tools</span>';
+  draftHint();
 }
 
-// ---- Drafting -------------------------------------------------------------------------------
-function timer(el) {
+function draftHint() {
+  const hasResearch = !$('#research-out').hidden && $('#research').value.trim();
+  $('#draft-hint').textContent = hasResearch
+    ? 'Drafts from the research notes above. Search while drafting is usually unnecessary; tick it only to let the model check what the notes leave open.'
+    : 'No research notes: the model drafts from the brief alone. Tick web search so it can check its sources while drafting, or run step 1 first.';
+}
+
+// ---- Streaming calls -------------------------------------------------------------------------
+// The server answers a model call with JSON lines: progress events, then a result or an error.
+async function stream(path, body, after) {
+  const live = $('#live');
+  after.insertAdjacentElement('afterend', live);
+  live.insertAdjacentElement('afterend', $('#step-error'));
+  $('#step-error').textContent = '';
+  $('#live-queries').innerHTML = '';
+  $('#live-text').textContent = '';
+  live.hidden = false;
+  const buttons = document.querySelectorAll('#research-btn, #draft-btn, #revise-btn');
+  buttons.forEach((b) => (b.disabled = true));
   const t0 = Date.now();
-  const id = setInterval(() => (el.textContent = `Working… ${Math.round((Date.now() - t0) / 1000)} s (web search can take a few minutes)`), 1000);
-  return () => {
-    clearInterval(id);
-    el.textContent = '';
-  };
+  let phase = 'Waiting for the model…';
+  const tick = () => ($('#live-status').textContent = `${phase} ${Math.round((Date.now() - t0) / 1000)} s`);
+  const timer = setInterval(tick, 1000);
+  tick();
+  const queries = new Map();
+  try {
+    const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const ev = JSON.parse(buf.slice(0, i));
+        buf = buf.slice(i + 1);
+        if (ev.type === 'start') phase = `${ev.model}: ${ev.stage}…`;
+        else if (ev.type === 'tool' || ev.type === 'tool-done') {
+          let li = queries.get(ev.id);
+          if (!li) {
+            li = document.createElement('li');
+            queries.set(ev.id, li);
+            $('#live-queries').append(li);
+          }
+          li.className = ev.type === 'tool' ? 'running' : '';
+          li.textContent = `${ev.tool === 'web_search' ? '' : `${ev.tool}: `}${ev.query || '…'}${ev.type === 'tool' ? ' (searching)' : ''}`;
+          phase = ev.type === 'tool' ? 'Searching…' : 'Reading the results…';
+        } else if (ev.type === 'text') {
+          phase = 'Writing…';
+          const pre = $('#live-text');
+          const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+          pre.textContent += ev.text;
+          if (atEnd) pre.scrollTop = pre.scrollHeight;
+        } else if (ev.type === 'error') throw new Error(ev.error);
+        else if (ev.type === 'result') return ev.result;
+      }
+    }
+    throw new Error('the server closed the stream without a result');
+  } catch (err) {
+    $('#step-error').textContent = err.message;
+    return null;
+  } finally {
+    clearInterval(timer);
+    buttons.forEach((b) => (b.disabled = false));
+    toolsChanged();
+    live.hidden = !$('#step-error').textContent;
+    $('#live-status').textContent = $('#step-error').textContent ? `Stopped after ${Math.round((Date.now() - t0) / 1000)} s.` : '';
+  }
 }
 
-$('#brief').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const f = new FormData(e.target);
+function brief() {
+  const f = new FormData($('#brief'));
   const ticked = [...document.querySelectorAll('input[name=tags]:checked')].map((i) => i.value);
-  const tags = [...tagOrder.filter((t) => ticked.includes(t)), ...ticked.filter((t) => !tagOrder.includes(t))];
-  const body = {
+  return {
     topic: f.get('topic'),
     notes: f.get('notes'),
-    tags,
+    tags: [...tagOrder.filter((t) => ticked.includes(t)), ...ticked.filter((t) => !tagOrder.includes(t))],
     bar: f.get('bar'),
     conventions: f.getAll('conventions'),
     reference: f.get('reference'),
     slug: f.get('slug'),
     length: f.get('length'),
-    model: f.get('model'),
-    tools: f.getAll('tools'),
-    temperature: f.get('temperature') === '' ? null : Number(f.get('temperature')),
   };
-  const btn = $('#draft-btn');
-  btn.disabled = true;
-  const stop = timer($('#draft-wait'));
-  try {
-    show(await api('/api/draft', body));
-  } catch (err) {
-    stop();
-    $('#draft-wait').innerHTML = `<span class="error">${esc(err.message)}</span>`;
-    btn.disabled = false;
-    return;
-  }
-  stop();
-  btn.disabled = false;
+}
+
+let session = null; // the server's id for this note
+
+// Enter in the brief doesn't submit anything; the steps have their own buttons.
+$('#brief').addEventListener('submit', (e) => e.preventDefault());
+$('#research').addEventListener('input', draftHint);
+
+$('#research-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!$('#brief').reportValidity()) return;
+  const f = new FormData(e.target);
+  const r = await stream('/api/research', { ...brief(), model: f.get('model'), tools: [f.get('tool')] }, e.target);
+  if (!r) return;
+  session = r.session;
+  $('#research-out').hidden = false;
+  $('#research').value = r.research;
+  $('#queries').innerHTML = r.queries.map((q) => `<li>${esc(q.query)}</li>`).join('') || '<li class="muted">none reported</li>';
+  $('#research-refs').innerHTML = refList(r.references);
+  showCost(r);
+  draftHint();
+});
+
+$('#draft-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!$('#brief').reportValidity()) return;
+  const f = new FormData(e.target);
+  const research = $('#research-out').hidden ? '' : $('#research').value;
+  const r = await stream(
+    '/api/draft',
+    { ...brief(), session, research, model: f.get('model'), tools: f.getAll('draft-tools'), temperature: f.get('temperature') === '' ? null : Number(f.get('temperature')) },
+    e.target,
+  );
+  if (r) show(r);
 });
 
 $('#revise').addEventListener('submit', async (e) => {
   e.preventDefault();
   const instruction = new FormData(e.target).get('instruction');
-  const btn = $('#revise-btn');
-  btn.disabled = true;
-  const stop = timer($('#revise-wait'));
-  try {
-    show(await api('/api/revise', { session: current.session, instruction }));
-    e.target.reset();
-  } catch (err) {
-    stop();
-    $('#revise-wait').innerHTML = `<span class="error">${esc(err.message)}</span>`;
-    btn.disabled = false;
-    return;
-  }
-  stop();
-  btn.disabled = false;
+  const r = await stream('/api/revise', { session: current.session, instruction }, e.target);
+  if (!r) return;
+  e.target.reset();
+  show(r);
 });
+
+const refList = (refs) =>
+  refs.length
+    ? refs.map((x) => `<li>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)} <span class="muted">${esc(x.stage ?? x.tool)}</span></li>`).join('')
+    : '<li class="muted">The model returned no search results.</li>';
+
+function showCost(r) {
+  $('#cost-wrap').hidden = false;
+  $('#cost').innerHTML = costTable(r.calls, r.total);
+}
 
 function show(r) {
   current = r;
+  session = r.session;
   edited = false;
   $('#result').hidden = false;
   $('#markdown').value = r.markdown;
   $('#prnotes').value = r.prNotes;
   $('#pr [name=slug]').value = r.slug;
   $('#pr-out').textContent = '';
-  $('#cost').innerHTML = costTable(r.calls, r.total);
-  $('#refs').innerHTML = r.references.length ? r.references.map((x) => `<li>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)} <span class="muted">${esc(x.tool)}</span></li>`).join('') : '<li class="muted">The model returned no search results.</li>';
+  showCost(r);
+  $('#refs').innerHTML = refList(r.references);
   notices(r);
   renderPreview();
-  $('#result').scrollIntoView({ behavior: 'smooth' });
+  $('#cost-wrap').scrollIntoView({ behavior: 'smooth' });
 }
 
 function notices(r) {
@@ -242,6 +331,7 @@ $('#pr').addEventListener('submit', async (e) => {
       slug: new FormData(e.target).get('slug'),
       markdown: $('#markdown').value,
       prNotes: $('#prnotes').value,
+      research: $('#research-out').hidden ? '' : $('#research').value,
       edited,
     });
     $('#pr-out').innerHTML = `Opened <a href="${esc(pr.url)}" target="_blank" rel="noopener">PR #${pr.number}</a> from <code>${esc(pr.branch)}</code>.`;

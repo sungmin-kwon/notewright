@@ -1,17 +1,27 @@
 # notewright
 
-A small local web app that drafts a note for
+A small local web app that researches and drafts a note for
 [sungmin-kwon.github.io](https://github.com/sungmin-kwon/sungmin-kwon.github.io) with an LLM API,
 shows the tokens and estimated cost of every call, and opens the draft as a pull request.
 It runs on your own computer: no login, nothing hosted.
 
 ```
-topic + notebook/tags ──► system prompt: WRITING.md + chosen conventions/*.md + one reference note
-                          (fetched from the site repo's main branch)
-                      ──► model drafts the note (Mistral, with its web_search tool)
-                      ──► preview, quick checks, cost; ask for changes as often as needed
-                      ──► Open PR: new branch notewright/<name> with src/content/notes/<name>.md
+brief: topic, notebook/tags, conventions files, reference note
+  │
+  ├─ 1. Research (optional): the model plans and runs web searches and writes research notes:
+  │     each source with what it supports and how sure it is, key facts, open questions.
+  │     Prompt: WRITING.md's citation rules + chosen conventions/*.md. You can edit the notes.
+  │
+  ├─ 2. Draft: a new conversation, usually without search, from WRITING.md + conventions +
+  │     one reference note + the research notes (all fetched from the site repo's main).
+  │     Ask for changes as often as needed; each revision continues this conversation.
+  │
+  └─ Open PR: new branch notewright/<name> with src/content/notes/<name>.md
 ```
+
+Each step can use a different model, so a cheap model can research and a stronger one draft
+(or the other way round), and each step's tokens and cost are counted separately. Replies are
+streamed: the searches and the text appear as they arrive.
 
 Review stays outside the app for now (a Claude review on the PR, following `REVIEWING.md`).
 
@@ -42,19 +52,26 @@ The server listens on `127.0.0.1` only, so other machines on the network can't r
 1. **Brief.** Topic, any notes or sources you want used, notebook and tags (the first ticked is
    the main tag), which bar, conventions files to include (e.g. `east-asian.md` for a note
    citing Chinese, Korean or Japanese sources), the reference note (defaults to the guide's
-   pick for the notebook; "none" saves tokens), model and tools.
-2. **Draft.** With web search on, expect one to a few minutes. The model is told it can't run
-   commands or open the page, so it leaves those self-check boxes unticked; with search on, it's
-   told to look up every source before citing it.
-3. **Read it.** Preview (marked + KaTeX, close to but not the site's renderer: a red KaTeX error
+   pick for the notebook; "none" saves tokens) and, optionally, a file name and length.
+2. **Research.** Pick a model and a search tool. The searches show up as they run, then the
+   notes stream in. The notes are an editable text box: cut a doubtful source, add one you know,
+   or answer an open question before drafting. The draft is written from what is in the box.
+   Skip this step to draft from the brief alone (then tick web search under the draft, so the
+   model can check its sources while it writes).
+3. **Draft.** Pick a model (it may differ from the research model). The model is told to cite
+   only the sources in the research notes and to list under **Not verified** everything the notes
+   mark as unread or open. It is also told it can't run commands or open the page, so it leaves
+   those self-check boxes unticked.
+4. **Read it.** Preview (marked + KaTeX, close to but not the site's renderer: a red KaTeX error
    here will also break on the site), the Markdown (editable), the PR notes (self-check and **Not
-   verified**, editable), and the search results the model was given. The app sets `date`,
-   `tags` and `model` in the frontmatter itself and says when it changed them. Quick checks run
-   a few `npm run check` rules locally; the real `npm run check` runs in CI on the PR.
-4. **Ask for changes.** Continues the same Mistral conversation, so the guide isn't resent. Each
+   verified**, editable), and all the search results. The app sets `date`, `tags` and `model` in
+   the frontmatter itself (`model` lists the drafting and revising models, not the research
+   model) and says when it changed them. Quick checks run a few `npm run check` rules locally;
+   the real `npm run check` runs in CI on the PR.
+5. **Ask for changes.** Continues the drafting conversation, so the guide isn't resent. Each
    revision is another row in the cost table.
-5. **Open PR.** The PR description has the model's PR notes, the search results, a note on which
-   commands nobody ran, and the cost table.
+6. **Open PR.** The PR description has the model's PR notes, the searches and search results,
+   the research notes (folded), a note on which commands nobody ran, and the cost table.
 
 ## Cost
 
@@ -86,8 +103,8 @@ A failed call is logged too, with `"ok": false`, the error (with its code, such 
 error), how long it ran, and the path of its prompt. The terminal running `npm start` prints the
 same error. `runs/` is not committed.
 
-A draft with web search can take several minutes, because Mistral answers only when the whole
-reply is ready. The app waits up to 20 minutes of silence on the connection before giving up.
+Replies are streamed, so a long research run doesn't hit a timeout; the app gives up only after
+20 minutes with no data on the connection.
 
 ## Models and providers
 
@@ -103,14 +120,14 @@ Adding OpenRouter or Anthropic means one new file plus models in `config.json`.
 ## Later: review through the API
 
 The pieces are already general: a provider call takes any system prompt and returns usage, and
-each logged call has a `stage` (`draft`, `revise`). A review stage would build its prompt from
+each logged call has a `stage` (`research`, `draft`, `revise`). A review stage would build its prompt from
 `REVIEWING.md` plus the draft, call a (usually stronger) model, log as `review`, and post the
 result on the PR.
 
 ## Tests
 
-`npm test` checks the reply parsing, frontmatter pinning, quick checks, cost arithmetic, prompt
-assembly and the GitHub PR calls (against a stubbed `fetch`, nothing is pushed).
+`npm test` checks the stream parsing (against a local server that streams like Mistral's API, including errors and a stream cut short), the reply parsing, frontmatter pinning, quick checks, cost arithmetic, prompt
+assembly for both steps and the GitHub PR calls (against a stubbed `fetch`, nothing is pushed).
 
 ## Licence
 
