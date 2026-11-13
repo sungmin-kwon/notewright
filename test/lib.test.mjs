@@ -98,6 +98,6 @@ test('researchNotes drops the plan before ## Sources, and the budget reaches the
   assert.equal(researchNotes("I'll research this.\n\n## Sources\n\n- [S1] A\n"), '## Sources\n\n- [S1] A');
   assert.equal(researchNotes('no heading here'), 'no heading here');
   const p = buildResearchPrompt({ ctx: { sections, writing: '' }, brief: { topic: 'T', tags: ['stats'] }, conventions: [], maxSearches: 6 });
-  assert.match(p.instructions, /at most 6 searches/);
+  assert.match(p.instructions, /at most 6 tool calls/);
   assert.doesNotMatch(buildResearchPrompt({ ctx: { sections, writing: '' }, brief: { topic: 'T', tags: ['stats'] }, conventions: [] }).instructions, /at most/);
 });

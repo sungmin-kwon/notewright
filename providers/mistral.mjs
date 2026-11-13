@@ -22,7 +22,7 @@ import { debugLog } from '../lib/log.mjs';
 const API = () => process.env.MISTRAL_API_BASE || 'https://api.mistral.ai/v1';
 export const TOOLS = ['web_search', 'web_search_premium', 'code_interpreter'];
 
-export async function call({ model, instructions, input, tools = [], state, temperature, onEvent = () => {} }) {
+export async function call({ model, instructions, input, tools = [], state, temperature, maxToolCalls, onEvent = () => {} }) {
   const key = need('MISTRAL_API_KEY');
   const completion_args = temperature == null ? undefined : { temperature };
   const inputs = [{ role: 'user', content: input }];
@@ -39,9 +39,61 @@ export async function call({ model, instructions, input, tools = [], state, temp
     instructionsChars: state?.conversationId ? 0 : instructions?.length ?? 0,
     inputChars: input.length,
     completion_args,
+    maxToolCalls,
   };
 
+  const first = await streamOnce({ key, url, body, request, onEvent, maxToolCalls });
+  if (!first.stopped) return { ...first.acc.result(), request };
+
+  // The tool budget is spent. Mistral's built-in tools can't be capped from outside, so the app
+  // closed the stream when the model started one call too many. Now it asks, in the same
+  // conversation, for the reply from what the model has, with tools switched off.
+  const so = first.acc.result();
+  if (!so.state.conversationId) throw new HttpError('stopped at the tool limit before Mistral gave a conversation id', { request, code: 'STOPPED' });
+  onEvent({ type: 'limit', max: maxToolCalls });
+  const wrapUp = {
+    inputs: [{ role: 'user', content: `Stop: the limit of ${maxToolCalls} searches and page opens is reached, and no more tool calls are allowed. Write your reply now from what you have already found, in the format asked for. Put anything you did not get to check under Open questions.` }],
+    stream: true,
+    store: true,
+    completion_args: { ...completion_args, tool_choice: 'none' },
+  };
+  const wrap = (b) =>
+    streamOnce({
+      key,
+      url: `${API()}/conversations/${so.state.conversationId}`,
+      body: b,
+      request: { ...request, wrapUp: true },
+      onEvent,
+      maxToolCalls: 0, // any further tool call ends the stream; take whatever text there is
+    });
+  let second;
+  try {
+    second = await wrap(wrapUp);
+  } catch (e) {
+    // If the API refuses tool_choice on a follow-up, ask again without it.
+    if (!(e.status >= 400 && e.status < 500)) throw e;
+    await new Promise((r) => setTimeout(r, 3000)); // in case the cut-off run was still finishing
+    second = await wrap({ ...wrapUp, completion_args });
+  }
+  const r = second.acc.result();
+  return {
+    ...r,
+    references: [...so.references, ...r.references.filter((x) => !so.references.some((y) => (y.url ?? y.title) === (x.url ?? x.title)))],
+    usage: {
+      ...r.usage,
+      // The cut-off part of the run never reported its usage; its tool calls are counted here,
+      // its tokens are not (they are billed, so the estimate is low).
+      toolCalls: mergeCounts(so.usage.toolCalls, r.usage.toolCalls),
+      incomplete: true,
+    },
+    servedModel: r.servedModel ?? so.servedModel,
+    request: { ...request, stoppedAtToolLimit: true },
+  };
+}
+
+async function streamOnce({ key, url, body, request, onEvent, maxToolCalls }) {
   const acc = newAccumulator();
+  let started = 0;
   let res;
   try {
     res = await postSSE(url, {
@@ -50,7 +102,9 @@ export async function call({ model, instructions, input, tools = [], state, temp
       onOpen: (status) => onEvent({ type: 'open', status }),
       onEvent: (name, data) => {
         debugLog(name, data);
-        onEvent({ type: 'raw', name: data?.type ?? name });
+        const type = data?.type ?? name;
+        onEvent({ type: 'raw', name: type });
+        if (type === 'tool.execution.started' && maxToolCalls != null && ++started > maxToolCalls) return false;
         const ev = acc.add(name, data);
         if (ev) onEvent(ev);
       },
@@ -62,8 +116,15 @@ export async function call({ model, instructions, input, tools = [], state, temp
     throw new HttpError(`Mistral answered ${res.status}: ${res.text.slice(0, 500)}`, { status: res.status, request, response: res.text.slice(0, 2000) });
   }
   if (acc.error) throw new HttpError(`Mistral reported an error mid-stream: ${acc.error}`, { request, code: acc.errorCode });
+  if (res.stopped) return { acc, stopped: true };
   if (!acc.done) throw new HttpError('the stream ended before Mistral said it was done', { request, code: 'INCOMPLETE' });
-  return { ...acc.result(), request };
+  return { acc, stopped: false };
+}
+
+function mergeCounts(a = {}, b = {}) {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b)) out[k] = (out[k] ?? 0) + v;
+  return out;
 }
 
 /** Folds the stream's events into the final reply; returns a simpler event for the page. */
@@ -150,6 +211,7 @@ function queryOf(args) {
   if (!args) return '';
   try {
     const a = JSON.parse(args);
+    if (a && typeof a === 'object' && a.url && !a.query) return `open ${a.url}`;
     return typeof a === 'object' && a ? a.query ?? a.q ?? JSON.stringify(a) : String(a);
   } catch {
     return args; // still arriving

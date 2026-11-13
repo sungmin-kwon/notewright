@@ -137,7 +137,7 @@ const streaming = {
     const { instructions, input } = buildResearchPrompt({ ctx, brief, conventions, maxSearches });
     const session = newSession(brief);
     saveDraft(`${session.id}-research-prompt.md`, `${instructions}\n\n=== USER ===\n\n${input}\n`);
-    const r = await runCall({ session, stage: 'research', model, request: { instructions, input, tools, temperature: body.temperature ?? null }, send });
+    const r = await runCall({ session, stage: 'research', model, request: { instructions, input, tools, temperature: body.temperature ?? null, maxToolCalls: maxSearches ?? undefined }, send });
     session.research = researchNotes(r.text);
     session.states.research = r.state;
     return summary(session);

@@ -56,8 +56,12 @@ The server listens on `127.0.0.1` only, so other machines on the network can't r
 2. **Research.** Pick a model and a search tool. The searches show up as they run, then the
    notes stream in. The notes are an editable text box: cut a doubtful source, add one you know,
    or answer an open question before drafting. The draft is written from what is in the box.
-   Each Mistral web search takes roughly 30 to 60 seconds and they run one after another, so
-   **Most searches** (default 6) caps them; the live list shows how long each one took. A cheaper
+   Each Mistral web search or page open takes roughly 30 to 60 seconds and they run one after
+   another, so **Most searches and page opens** (default 8) caps them. The prompt states the
+   limit, and the app enforces it: when the model starts one call too many, the app closes the
+   stream and asks the model, in the same conversation and with tools off, for the notes from
+   what it has. Mistral reports no token counts for the cut-off part, so that row's cost is
+   marked as an underestimate. The live list shows each search or page open and how long it took. A cheaper
    or faster model can do this step while a stronger one drafts.
    Skip this step to draft from the brief alone (then tick web search under the draft, so the
    model can check its sources while it writes).
