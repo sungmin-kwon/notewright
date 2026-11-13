@@ -76,11 +76,18 @@ estimate in dollars and a total per note. Prices live in `config.json`:
 ## Logs
 
 Every call is a line in `runs/calls.jsonl` (time, stage, model asked for and model served,
-tools, token counts, tool calls, estimated cost, seconds, topic, tags, and any error), and every
+tools, token counts, tool calls, estimated cost, seconds, topic, tags, and the request without
+the key or the long texts), and every
 opened PR is a line with its URL and the note's total. Each reply is saved in `runs/drafts/`,
 and the full prompt of each draft in `runs/drafts/<session>-prompt.md`. The **Runs** tab
 summarises them by model: notes, calls, average tokens, tool calls, time and cost per note.
-`runs/` is not committed.
+A failed call is logged too, with `"ok": false`, the error (with its code, such as
+`ECONNRESET` or `TIMEOUT`, and the HTTP status and reply body when the API answered with an
+error), how long it ran, and the path of its prompt. The terminal running `npm start` prints the
+same error. `runs/` is not committed.
+
+A draft with web search can take several minutes, because Mistral answers only when the whole
+reply is ready. The app waits up to 20 minutes of silence on the connection before giving up.
 
 ## Models and providers
 

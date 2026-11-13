@@ -35,7 +35,7 @@ async function runCall({ session, stage, model, request }) {
   try {
     const r = await provider(model.provider).call({ model: model.id, ...request });
     const cost = estimateCost(r.usage, model, cfg);
-    const done = { ...entry, servedModel: r.servedModel, tools: request.tools ?? session.tools, usage: r.usage, cost, ms: Date.now() - started, ok: true, references: r.references.length };
+    const done = { ...entry, request: r.request, servedModel: r.servedModel, tools: request.tools ?? session.tools, usage: r.usage, cost, ms: Date.now() - started, ok: true, references: r.references.length };
     logCall({ ...done, topic: session.brief.topic, tags: session.brief.tags });
     session.calls.push(done);
     session.state = r.state;
@@ -43,8 +43,22 @@ async function runCall({ session, stage, model, request }) {
     saveDraft(`${session.id}-${session.calls.length}.md`, r.text);
     return r;
   } catch (e) {
-    logCall({ ...entry, topic: session.brief.topic, ms: Date.now() - started, ok: false, error: String(e.message ?? e) });
-    throw e;
+    const error = String(e.message ?? e);
+    logCall({
+      ...entry,
+      topic: session.brief.topic,
+      tags: session.brief.tags,
+      ms: Date.now() - started,
+      ok: false,
+      error,
+      code: e.code ?? e.cause?.code,
+      status: e.status,
+      request: e.request,
+      response: e.response,
+      prompt: stage === 'draft' ? `runs/drafts/${session.id}-prompt.md` : undefined,
+    });
+    console.error(`[${stage}] ${model.id} failed after ${Math.round((Date.now() - started) / 1000)} s: ${error}`);
+    throw new Error(`${error} (logged in runs/calls.jsonl)`);
   }
 }
 

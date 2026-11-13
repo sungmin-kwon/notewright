@@ -9,8 +9,10 @@
 // {type:"tool_reference", title, url, tool}); `usage` has prompt_tokens, completion_tokens,
 // connector_tokens and connectors ({ web_search: <calls> }).
 import { need } from '../lib/env.mjs';
+import { postJSON, HttpError } from '../lib/http.mjs';
 
-const API = 'https://api.mistral.ai/v1';
+// MISTRAL_API_BASE is only for tests (a local stand-in server).
+const API = process.env.MISTRAL_API_BASE || 'https://api.mistral.ai/v1';
 export const TOOLS = ['web_search', 'web_search_premium', 'code_interpreter'];
 
 export async function call({ model, instructions, input, tools = [], state, temperature }) {
@@ -32,15 +34,31 @@ export async function call({ model, instructions, input, tools = [], state, temp
           name: 'notewright draft',
         },
       ];
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15 * 60 * 1000),
-  });
-  const raw = await res.text();
-  if (!res.ok) throw new Error(`Mistral ${res.status}: ${raw.slice(0, 500)}`);
-  return parse(JSON.parse(raw));
+  // What the log keeps about the request: everything but the key and the long texts.
+  const summary = {
+    url,
+    model: state?.conversationId ? undefined : model,
+    tools,
+    instructionsChars: state?.conversationId ? 0 : instructions?.length ?? 0,
+    inputChars: input.length,
+    completion_args,
+  };
+  let res;
+  try {
+    res = await postJSON(url, { headers: { Authorization: `Bearer ${key}` }, body });
+  } catch (e) {
+    throw Object.assign(e, { request: summary });
+  }
+  if (res.status < 200 || res.status >= 300) {
+    throw new HttpError(`Mistral answered ${res.status}: ${res.text.slice(0, 500)}`, { status: res.status, request: summary, response: res.text.slice(0, 2000) });
+  }
+  let data;
+  try {
+    data = JSON.parse(res.text);
+  } catch {
+    throw new HttpError(`Mistral's reply was not JSON: ${res.text.slice(0, 300)}`, { status: res.status, request: summary, response: res.text.slice(0, 2000) });
+  }
+  return { ...parse(data), request: summary };
 }
 
 export function parse(data) {
